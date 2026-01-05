@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<!-- Version mise à jour le 5 janvier 2025 -->
     <meta charset="UTF-8">
     <title>Compteur Mailles Clic & Vocal</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -284,10 +283,12 @@
         
         function log(msg) { 
             statusEl.innerText = msg; 
+            console.log('STATUS:', msg);
         }
         
         function showVoice(text) {
             voiceTextEl.innerHTML = `🎤 <strong>${text}</strong>`;
+            console.log('VOICE TEXT:', text);
             setTimeout(() => { voiceTextEl.innerHTML = ''; }, 3000);
         }
         
@@ -325,21 +326,23 @@
             }
             
             recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
+            recognition.continuous = false;
+            recognition.interimResults = false;
             recognition.lang = 'fr-FR';
-            recognition.maxAlternatives = 1;
             
             recognition.onstart = function() {
                 log("✅ Micro activé - Parlez!");
+                console.log('Recognition started');
                 micBtn.classList.add('listening');
             };
             
             recognition.onend = function() {
+                console.log('Recognition ended');
                 if (isListening) {
                     restartTimeout = setTimeout(() => {
                         try {
                             recognition.start();
+                            console.log('Recognition restarted');
                         } catch(e) {
                             console.log('Restart error:', e);
                         }
@@ -350,17 +353,19 @@
             };
             
             recognition.onerror = function(event) {
-                console.log("Erreur:", event.error);
+                console.log("Recognition error:", event.error);
                 if (event.error === 'not-allowed') {
                     log("⚠️ Autorisation micro refusée");
                     isListening = false;
                     micBtn.classList.remove('listening');
+                } else if (event.error === 'no-speech') {
+                    console.log('No speech detected');
                 }
             };
             
             recognition.onresult = function(event) {
                 const transcript = event.results[0][0].transcript.toLowerCase().trim();
-                console.log("Reconnu:", transcript);
+                console.log("=== RECONNU ===:", transcript);
                 showVoice(transcript);
                 processVoiceCommand(transcript);
             };
@@ -369,15 +374,20 @@
         }
         
         function processVoiceCommand(cmd) {
-            if (cmd.includes('plus') || cmd.includes('un de plus')) {
+            console.log("=== PROCESSING COMMAND ===:", cmd);
+            
+            if (cmd.includes('plus') || cmd.includes('un de plus') || cmd.includes('augmente')) {
+                console.log('Command matched: PLUS');
                 manualChange(1);
                 log("✅ +1 (vocal)");
             } 
-            else if (cmd.includes('moins') || cmd.includes('un de moins')) {
+            else if (cmd.includes('moins') || cmd.includes('un de moins') || cmd.includes('diminue')) {
+                console.log('Command matched: MOINS');
                 manualChange(-1);
                 log("✅ -1 (vocal)");
             }
-            else if (cmd.includes('zéro') || cmd.includes('reset')) {
+            else if (cmd.includes('zéro') || cmd.includes('reset') || cmd.includes('zero')) {
+                console.log('Command matched: ZERO');
                 setCount(0);
                 log("✅ Reset (vocal)");
             }
@@ -386,16 +396,20 @@
                 if (nums) {
                     const n = parseInt(nums[0]);
                     if (!isNaN(n)) {
+                        console.log('Command matched: NUMBER', n);
                         setCount(n);
                         log(`✅ ${n} (vocal)`);
+                        return;
                     }
-                } else {
-                    log("❓ Commande non reconnue: " + cmd);
                 }
+                console.log('Command NOT recognized');
+                log("❓ Commande non reconnue: " + cmd);
             }
         }
         
         function toggleMic() {
+            console.log('Toggle mic, currently listening:', isListening);
+            
             if (!recognition) {
                 recognition = initSpeechRecognition();
                 if (!recognition) return;
@@ -404,27 +418,91 @@
             if (!isListening) {
                 navigator.mediaDevices.getUserMedia({ audio: true })
                     .then(() => {
+                        console.log('Microphone permission granted');
                         isListening = true;
+                        
+                        // Message d'attente de 1 minute
+                        log("⏳ Patientez 1 minute avant de parler");
+                        
+                        warmupTimer = setTimeout(() => {
+                            log("");
+                        }, 60000); // 60 secondes
+                        
                         try {
                             recognition.start();
                         } catch(e) {
+                            console.log('Start error:', e);
                             log("❌ Erreur micro");
                         }
                     })
-                    .catch(() => {
+                    .catch((err) => {
+                        console.log('Microphone permission denied:', err);
                         log("⚠️ Autorisation micro requise");
                     });
             } else {
+                console.log('Stopping recognition');
                 isListening = false;
                 clearTimeout(restartTimeout);
+                clearTimeout(warmupTimer);
                 recognition.stop();
                 micBtn.classList.remove('listening');
                 log("⏸️ Micro désactivé");
             }
         }
         
+        function saveCountToHistory() {
+            const history = JSON.parse(localStorage.getItem('compteur_history') || '[]');
+            const now = new Date();
+            const entry = {
+                count: count,
+                date: now.toISOString(),
+                dateFormatted: now.toLocaleDateString('fr-FR', { 
+                    day: '2-digit', 
+                    month: 'long', 
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                })
+            };
+            
+            // Garder seulement les 50 dernières entrées
+            history.unshift(entry);
+            if (history.length > 50) {
+                history.pop();
+            }
+            
+            localStorage.setItem('compteur_history', JSON.stringify(history));
+        }
+        
+        function showHistory() {
+            const history = JSON.parse(localStorage.getItem('compteur_history') || '[]');
+            const historyList = document.getElementById('historyList');
+            const overlay = document.getElementById('overlay');
+            const panel = document.getElementById('historyPanel');
+            
+            if (history.length === 0) {
+                historyList.innerHTML = '<li style="color: #aaa; padding: 20px; text-align: center;">Aucun historique pour le moment</li>';
+            } else {
+                historyList.innerHTML = history.map(entry => `
+                    <li class="history-item">
+                        <div class="history-count">${entry.count} mailles</div>
+                        <div class="history-date">${entry.dateFormatted}</div>
+                    </li>
+                `).join('');
+            }
+            
+            overlay.classList.add('show');
+            panel.classList.add('show');
+        }
+        
+        function closeHistory() {
+            document.getElementById('overlay').classList.remove('show');
+            document.getElementById('historyPanel').classList.remove('show');
+        }
+        
         window.addEventListener('load', function() {
             log("✅ Prêt! Appuyez sur 🎙️");
+            console.log('App loaded');
         });
     </script>
 </body>
