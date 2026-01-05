@@ -130,6 +130,110 @@
             min-height: 20px;
         }
         
+        .btn-history {
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: #2a2a2a;
+            color: #4ade80;
+            border: 2px solid #4ade80;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-history:hover {
+            background: #3a3a3a;
+            transform: translateY(-2px);
+        }
+        
+        .history-panel {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #2a2a2a;
+            border: 2px solid #4ade80;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        
+        .history-panel.show {
+            display: block;
+        }
+        
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .history-title {
+            color: #4ade80;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        
+        .btn-close {
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 2rem;
+            cursor: pointer;
+            padding: 0;
+            width: 40px;
+            height: 40px;
+            line-height: 1;
+        }
+        
+        .history-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .history-item {
+            padding: 15px;
+            margin: 10px 0;
+            background: #1a1a1a;
+            border-left: 4px solid #4ade80;
+            border-radius: 4px;
+        }
+        
+        .history-count {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #4ade80;
+        }
+        
+        .history-date {
+            color: #aaa;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 999;
+        }
+        
+        .overlay.show {
+            display: block;
+        }
+        
         @media (max-height: 600px) {
             #compteur { font-size: 20vh; }
             h1 { font-size: 1.5rem; margin: 5px 0 15px 0; }
@@ -150,6 +254,17 @@
     
     <div class="voice-indicator" id="voiceText"></div>
     
+    <button class="btn-history" onclick="showHistory()">📋 Voir l'historique</button>
+    
+    <div class="overlay" id="overlay" onclick="closeHistory()"></div>
+    <div class="history-panel" id="historyPanel">
+        <div class="history-header">
+            <div class="history-title">📋 Historique des comptes</div>
+            <button class="btn-close" onclick="closeHistory()">×</button>
+        </div>
+        <ul class="history-list" id="historyList"></ul>
+    </div>
+    
     <div style="margin-top: 30px; font-size: 0.8rem; color: #666; text-align: center;">
         Commandes vocales : "plus", "moins", "zéro", ou dire un nombre
     </div>
@@ -159,6 +274,7 @@
         let isListening = false;
         let recognition = null;
         let restartTimeout = null;
+        let warmupTimer = null;
         
         const display = document.getElementById('compteur');
         const statusEl = document.getElementById('status');
@@ -167,17 +283,16 @@
         
         function log(msg) { 
             statusEl.innerText = msg; 
-            console.log('STATUS:', msg);
         }
         
         function showVoice(text) {
             voiceTextEl.innerHTML = `🎤 <strong>${text}</strong>`;
-            console.log('VOICE TEXT:', text);
             setTimeout(() => { voiceTextEl.innerHTML = ''; }, 3000);
         }
         
         function updateDisplay() {
             display.innerText = count;
+            saveCountToHistory();
             display.style.transform = 'scale(1.1)';
             display.style.color = '#ffffff';
             setTimeout(() => {
@@ -209,23 +324,21 @@
             }
             
             recognition = new SpeechRecognition();
-            recognition.continuous = false;
-            recognition.interimResults = false;
+            recognition.continuous = true;
+            recognition.interimResults = true;
             recognition.lang = 'fr-FR';
+            recognition.maxAlternatives = 1;
             
             recognition.onstart = function() {
                 log("✅ Micro activé - Parlez!");
-                console.log('Recognition started');
                 micBtn.classList.add('listening');
             };
             
             recognition.onend = function() {
-                console.log('Recognition ended');
                 if (isListening) {
                     restartTimeout = setTimeout(() => {
                         try {
                             recognition.start();
-                            console.log('Recognition restarted');
                         } catch(e) {
                             console.log('Restart error:', e);
                         }
@@ -236,19 +349,17 @@
             };
             
             recognition.onerror = function(event) {
-                console.log("Recognition error:", event.error);
+                console.log("Erreur:", event.error);
                 if (event.error === 'not-allowed') {
                     log("⚠️ Autorisation micro refusée");
                     isListening = false;
                     micBtn.classList.remove('listening');
-                } else if (event.error === 'no-speech') {
-                    console.log('No speech detected');
                 }
             };
             
             recognition.onresult = function(event) {
                 const transcript = event.results[0][0].transcript.toLowerCase().trim();
-                console.log("=== RECONNU ===:", transcript);
+                console.log("Reconnu:", transcript);
                 showVoice(transcript);
                 processVoiceCommand(transcript);
             };
@@ -257,20 +368,15 @@
         }
         
         function processVoiceCommand(cmd) {
-            console.log("=== PROCESSING COMMAND ===:", cmd);
-            
-            if (cmd.includes('plus') || cmd.includes('un de plus') || cmd.includes('augmente')) {
-                console.log('Command matched: PLUS');
+            if (cmd.includes('plus') || cmd.includes('un de plus')) {
                 manualChange(1);
                 log("✅ +1 (vocal)");
             } 
-            else if (cmd.includes('moins') || cmd.includes('un de moins') || cmd.includes('diminue')) {
-                console.log('Command matched: MOINS');
+            else if (cmd.includes('moins') || cmd.includes('un de moins')) {
                 manualChange(-1);
                 log("✅ -1 (vocal)");
             }
-            else if (cmd.includes('zéro') || cmd.includes('reset') || cmd.includes('zero')) {
-                console.log('Command matched: ZERO');
+            else if (cmd.includes('zéro') || cmd.includes('reset')) {
                 setCount(0);
                 log("✅ Reset (vocal)");
             }
@@ -279,20 +385,16 @@
                 if (nums) {
                     const n = parseInt(nums[0]);
                     if (!isNaN(n)) {
-                        console.log('Command matched: NUMBER', n);
                         setCount(n);
                         log(`✅ ${n} (vocal)`);
-                        return;
                     }
+                } else {
+                    log("❓ Commande non reconnue: " + cmd);
                 }
-                console.log('Command NOT recognized');
-                log("❓ Commande non reconnue: " + cmd);
             }
         }
         
         function toggleMic() {
-            console.log('Toggle mic, currently listening:', isListening);
-            
             if (!recognition) {
                 recognition = initSpeechRecognition();
                 if (!recognition) return;
@@ -301,21 +403,17 @@
             if (!isListening) {
                 navigator.mediaDevices.getUserMedia({ audio: true })
                     .then(() => {
-                        console.log('Microphone permission granted');
                         isListening = true;
                         try {
                             recognition.start();
                         } catch(e) {
-                            console.log('Start error:', e);
                             log("❌ Erreur micro");
                         }
                     })
-                    .catch((err) => {
-                        console.log('Microphone permission denied:', err);
+                    .catch(() => {
                         log("⚠️ Autorisation micro requise");
                     });
             } else {
-                console.log('Stopping recognition');
                 isListening = false;
                 clearTimeout(restartTimeout);
                 recognition.stop();
@@ -326,7 +424,6 @@
         
         window.addEventListener('load', function() {
             log("✅ Prêt! Appuyez sur 🎙️");
-            console.log('App loaded');
         });
     </script>
 </body>
